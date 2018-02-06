@@ -29,13 +29,19 @@ data CC = CC Int Bool deriving (Eq, Show)
 
 instance Resource A where
     type ContextType A = CA
-    newContext (A v) = liftIO $ newIORef (CA v False)
+    newContext r = do
+        A v <- liftIO $ readIORef r
+        liftIO $ newIORef (CA v False)
 instance Resource B where
     type ContextType B = CB
-    newContext (B v) = liftIO $ newIORef (CB v False)
+    newContext r = do
+        B v <- liftIO $ readIORef r
+        liftIO $ newIORef (CB v False)
 instance Resource C where
     type ContextType C = CC
-    newContext (C v) = liftIO $ newIORef (CC v False)
+    newContext r = do
+        C v <- liftIO $ readIORef r
+        liftIO $ newIORef (CC v False)
 
 instance ResourceContext CA where
     type ResourceType CA = A
@@ -132,6 +138,14 @@ spec = do
             let resources = ra `RCons` rb `RCons` rc `RCons` RNil
             withContext @'[CA, CC] resources (throwIO TestException) `shouldThrow` anyException
 
+        it "Propagate contexts" $ do
+            ra <- newIORef (A 1)
+            rb <- newIORef (B 2)
+            rc <- newIORef (C 3)
+            let resources = ra `RCons` rb `RCons` rc `RCons` RNil
+            (v, _) <- withContext @'[CA, CC] resources contextualFunc3
+            v `shouldBe` 13
+
 data TestException = TestException deriving (Show)
 
 instance Exception TestException
@@ -155,3 +169,15 @@ contextualFunc2 = do
     writeIORef ra (CA (va * 2) ba)
     writeIORef rc (CC (vc * 2) bc)
     return $ va + vc
+
+contextualFunc3 :: (With '[CA, CC])
+                => IO Int
+contextualFunc3 = do
+    vc <- with @'[CC] propagated
+    return vc
+
+propagated :: (With '[CC])
+           => IO Int
+propagated = do
+    (CC vc _) <- readIORef $ contextOf @CC ?cxt
+    return $ vc + 10

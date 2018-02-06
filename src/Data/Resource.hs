@@ -18,11 +18,13 @@
 
 module Data.Resource where
 
+import GHC.Exts
 import GHC.TypeLits
 import Data.IORef
 import Data.Proxy
 import Control.Monad
 import Control.Monad.IO.Class
+import Control.Monad.Trans.Control
 import Control.Exception.Safe
 
 -- ------------------------------------------------------------
@@ -37,14 +39,14 @@ class (Resource (ResourceType c), ContextType (ResourceType c) ~ c) => ResourceC
 
     -- | This method is invoked when the IO action finished or some exception is thrown.
     -- Instance type should implement releasing operation of resource handles if @execContext@ does not do it.
-    closeContext :: (Monad m, MonadIO m)
+    closeContext :: (MonadIO m, MonadBaseControl IO m)
                  => c -- ^ This context.
                  -> Bool -- ^ Denotes whether the action finished without exception.
                  -> m c -- ^ Closed context.
 
     -- | Executes an IO action and returns the result.
-    execContext :: (Monad m, MonadIO m)
-                => c -- ^ This context.
+    execContext :: (MonadIO m, MonadBaseControl IO m)
+                => IORef c -- ^ Reference to this context.
                 -> m a -- ^ An IO action.
                 -> m a -- ^ The result of the action.
 
@@ -55,25 +57,29 @@ class (ResourceContext (ContextType r), ResourceType (ContextType r) ~ r) => Res
     type ContextType r :: *
 
     -- | Generate a context. The context is contained in IORef, thus, it can be modified in IO action.
-    newContext :: (Monad m, MonadIO m)
-               => r -- ^ This resource.
+    newContext :: (MonadIO m, MonadBaseControl IO m)
+               => IORef r -- ^ Referencee to this resource.
                -> m (IORef (ContextType r)) -- ^ Generate context contained in IORef.
 
-class (Resource r) => ResourceFactory rf r where
-    newResource :: (Monad m, MonadIO m) => rf -> m (IORef r)
-
+-- | Hetero typed list of resource references.
 data Resources (rs :: [*]) where
+    -- | Data constructor of an empty list.
     RNil :: Resources '[]
 
+    -- | Data constructor to prepend a resource reference to a list.
     RCons :: (Resource r)
-          => IORef r
-          -> Resources rs
-          -> Resources (IORef r ': rs)
+          => IORef r -- ^ A resource reference to prepend.
+          -> Resources rs -- ^ List of resource references.
+          -> Resources (IORef r ': rs) -- ^ Prepended list.
 
 infixr 5 `RCons`
 
+-- | Declares a method to get a resource reference by its type.
+-- Type should by given by type application or type signature.
+-- > resourceOf @ResourceType resources
 class ResourceOf r rs where
-    resourceOf :: Resources rs -> IORef r
+    resourceOf :: Resources rs -- ^ List of resource references.
+               -> IORef r -- ^ A reference of the resource.
 
 instance ResourceOf r (IORef r ': rs) where
     resourceOf (v `RCons` vs) = v
@@ -85,47 +91,45 @@ instance {-# OVERLAPPABLE #-} (ResourceOf r rs) => ResourceOf r (x ': rs) where
 -- Contexts
 -- ------------------------------------------------------------
 
+-- | Hetero typed list of context references.
 data Contexts (cs :: [*]) where
+    -- | Data constructor of an empty list.
     CNil :: Contexts '[]
 
+    -- | Data constructor to prepend a context reference to a list.
     CCons :: (ResourceContext c)
-          => IORef c
-          -> Contexts cs
-          -> Contexts (IORef c ': cs)
+          => IORef c -- ^ A context reference to prepend.
+          -> Contexts cs -- ^ List of context references.
+          -> Contexts (IORef c ': cs) -- ^ Prepended list.
 
 infixr 5 `CCons`
 
-execute :: (Monad m, MonadIO m, ExecContexts cs)
-        => Contexts (Refs cs)
-        -> (With cs => m a)
-        -> m a
-execute contexts f = execContexts contexts contexts f
+-- | Execute a function in the environment where contexts can be obtained from an implicit param.
+-- The function is called after every @execContext@ of each context is executed.
+execContexts :: forall m cs' cs a. (MonadIO m, MonadBaseControl IO m)
+             => Contexts (Refs cs') -- ^ List of all context references available in the function.
+             -> Contexts cs -- ^ Partial list of contexts. This argument is used for recursion.
+             -> (With cs' => m a) -- ^ A function.
+             -> m a -- ^ Result of the function.
+execContexts contexts CNil f = let ?cxt = contexts in f
+execContexts contexts (c `CCons` cxts) f = do
+    execContext c $ execContexts contexts cxts f
 
-class ExecContexts cs where
-    execContexts :: (Monad m, MonadIO m)
-                 => Contexts (Refs cs')
-                 -> Contexts (Refs cs)
-                 -> (With cs' => m a)
-                 -> m a
-
-instance ExecContexts '[] where
-    execContexts contexts _ f = let ?cxt = contexts in f
-
-instance (ExecContexts cs) => ExecContexts (c ': cs) where
-    execContexts contexts (cxt `CCons` cxts) f = do
-        cxt' <- liftIO $ readIORef cxt
-        execContext cxt' $ execContexts contexts cxts f
-
-closeAll :: (Monad m, MonadIO m)
-         => Bool
-         -> Contexts cs
-         -> m ()
+-- | Close all contexts by executing their @closeContext@ in order.
+-- Every modification done in @closeContext@ affects each context reference.
+closeAll :: (MonadIO m, MonadBaseControl IO m)
+         => Bool -- ^ Status denoting whether some error happened in operations under the contexts.
+         -> Contexts cs -- ^ List of context references.
+         -> m () -- ^ Returns nothing.
 closeAll b CNil = return ()
 closeAll b (v `CCons` vs) = do
     c <- liftIO $ readIORef v
     closeContext c b >>= liftIO . writeIORef v
     closeAll b vs
 
+-- | Declares a method to get a context reference by its type.
+-- Type should by given by type application or type signature.
+-- > contextOf @ContextType contexts
 class ContextOf c cs where
     contextOf :: Contexts cs -> IORef c
 
@@ -135,34 +139,81 @@ instance ContextOf c (IORef c ': cs) where
 instance {-# OVERLAPPABLE #-} (cs ~ (x ': cs'), ContextOf c cs') => ContextOf c cs where
     contextOf (v `CCons` vs) = contextOf vs
 
+-- | Declares a method to generate contexts for resources.
 class ContextResources (cs :: [*]) rs where
-    generateContexts :: (Monad m, MonadIO m) => Resources rs -> m (Contexts cs)
+    -- | Generates contexts for resources.
+    generateContexts :: (MonadIO m, MonadBaseControl IO m)
+                     => Resources rs -- ^ Resources.
+                     -> m (Contexts cs) -- ^ Contexts generated from all resources.
 
 instance ContextResources '[] rs where
     generateContexts _ = return CNil
 
 instance (ResourceContext c, ResourceOf (ResourceType c) rs, ContextResources cs rs) => ContextResources (IORef c ': cs) rs where
     generateContexts resources = do
-        r <- liftIO $ readIORef (resourceOf @(ResourceType c) resources)
-        cxt <- newContext r
+        cxt <- newContext (resourceOf @(ResourceType c) resources)
         others <- generateContexts @cs resources
         return $ cxt `CCons` others
 
+-- | Converts every item in type level list by applying @IORef@.
 type family Refs (as :: [*]) = (rs :: [*]) | rs -> as
 type instance Refs '[] = '[]
 type instance Refs (a ': as) = IORef a ': Refs as
 
+-- | Declares a method to select contexts of specified types from their superset.
+class SelectContexts (ds :: [*]) (cs :: [*]) (cs' :: [*]) where
+    -- | Select contexts of specified types.
+    selectContexts :: Contexts cs' -- ^ Superset of contexts.
+                   -> Contexts cs -- ^ Subset of contexts spritted on each recursion.
+                   -> Contexts ds -- ^ Selected contexts.
+
+instance SelectContexts '[] (c ': cs) cs' where
+    selectContexts _ _ = CNil
+
+instance (SelectContexts ds cs' cs') => SelectContexts (IORef c ': ds) (IORef c ': cs) cs' where
+    selectContexts contexts (v `CCons` vs) = v `CCons` selectContexts @ds contexts contexts
+
+instance {-# OVERLAPPABLE #-} (SelectContexts ds cs cs') => SelectContexts ds (c ': cs) cs' where
+    selectContexts contexts (v `CCons` vs) = selectContexts @ds contexts vs
+
+-- | Constraint supplying an implicit parameter to a function.
+-- In the function annotated this constraint, context reference can be obtained by @?cxt@ which is @Context cs@ variable.
+--
+-- > func :: (With '[C1, C2]) => String -> IO String
+-- > func s = do
+-- >     c1 <- readIORef $ contextOf @C1 ?cxt
+-- >     c2 <- readIORef $ contextOf @C2 ?cxt
+-- >     return $ anotherFunc c1 c2 s
 type With (cs :: [*]) = (?cxt :: Contexts (Refs cs))
 
-withContext :: forall cs rs m a. (ExecContexts cs, ContextResources (Refs cs) rs, Monad m, MonadIO m, MonadMask m)
-            => Resources rs
-            -> (With cs => m a)
-            -> m (a, Contexts (Refs cs))
+-- | Executes a function with contexts generated from resources.
+withContext :: forall cs rs m a. (ContextResources (Refs cs) rs, MonadIO m, MonadMask m, MonadBaseControl IO m)
+            => Resources rs -- ^ Resources.
+            -> (With cs => m a) -- ^ Function using contexts.
+            -> m (a, Contexts (Refs cs)) -- ^ Result of the function and modified contexts.
 withContext resources f = do
     bracketOnError (generateContexts @(Refs cs) resources)
                    (closeAll False)
                    (\c -> do
-                        r <- execute c f
+                        r <- execContexts c c f
                         closeAll True c
                         return (r, c)
                     )
+
+-- | Execute a function using contexts propagated from another function having @With@ constraint.
+-- Use this to call a function in another function having implicit contexts of other types.
+-- Among type variables, @ds@ is context types required by callee, @cs@ is context types of caller.
+-- @ds@ must be the subset of @cs@ otherwise compilation is rejected.
+--
+-- > func1 :: (With '[C1, C2, C3]) => String -> IO String
+-- > func1 s = do
+-- >     s2 <- with @'[C2] func2
+-- >     return $ s ++ s2
+-- >
+-- > func2 :: (With '[C2]) => IO String
+-- >     c2 <- readIORef $ contextOf @C2 ?cxt
+-- >     return $ show c2
+with :: forall ds cs m a. (With cs, SelectContexts (Refs ds) (Refs cs) (Refs cs), MonadIO m, MonadMask m, MonadBaseControl IO m)
+     => (With ds => m a) -- ^ A function using contexts of @ds@.
+     -> m a -- ^ Result of the function.
+with f = let ?cxt = selectContexts @(Refs ds) ?cxt ?cxt in f
