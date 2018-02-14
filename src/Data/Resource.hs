@@ -15,6 +15,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE UndecidableSuperClasses #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TupleSections #-}
 
 module Data.Resource where
 
@@ -86,6 +87,11 @@ instance ResourceOf r (IORef r ': rs) where
 
 instance {-# OVERLAPPABLE #-} (ResourceOf r rs) => ResourceOf r (x ': rs) where
     resourceOf (v `RCons` vs) = resourceOf vs
+
+-- | Returns context types from resource types.
+type family ContextTypes (rs :: [*]) :: [*] where
+    ContextTypes '[] = '[]
+    ContextTypes (IORef r ': rs) = ContextType r ': ContextTypes rs
 
 -- ------------------------------------------------------------
 -- Contexts
@@ -186,19 +192,28 @@ instance {-# OVERLAPPABLE #-} (SelectContexts ds cs cs') => SelectContexts ds (c
 -- >     return $ anotherFunc c1 c2 s
 type With (cs :: [*]) = (?cxt :: Contexts (Refs cs))
 
--- | Executes a function with contexts generated from resources.
-withContext :: forall cs rs m a. (ContextResources (Refs cs) rs, MonadIO m, MonadMask m, MonadBaseControl IO m)
-            => Resources rs -- ^ Resources.
-            -> (With cs => m a) -- ^ Function using contexts.
-            -> m (a, Contexts (Refs cs)) -- ^ Result of the function and modified contexts.
-withContext resources f = do
-    bracketOnError (generateContexts @(Refs cs) resources)
-                   (closeAll False)
-                   (\c -> do
-                        r <- execContexts c c f
-                        closeAll True c
-                        return (r, c)
-                    )
+-- | Declares a method executing function with resource contexts.
+class WithContext cs w where
+    -- | Executes a function with contexts.
+    withContext :: forall m a. (MonadIO m, MonadMask m, MonadBaseControl IO m)
+                => w -- ^ Object resource contexts can be obtained from.
+                -> (With cs => m a) -- Function using contexts.
+                -> m (a, Contexts (Refs cs)) -- ^ Result of the function and modified contexts.
+
+-- | An instance of WithContext which generates contexts from resources.
+-- @withContext@ of this instance will close the genrated contexts correctly.
+instance (ContextResources (Refs cs) rs) => WithContext cs (Resources rs) where
+    withContext resources f = do
+        bracketOnError (generateContexts @(Refs cs) resources)
+                       (closeAll False)
+                       (\c -> do
+                            r <- execContexts c c f
+                            closeAll True c
+                            return (r, c)
+                        )
+
+instance (SelectContexts (Refs ds) cs cs) => WithContext ds (Contexts cs) where
+    withContext contexts f = let ?cxt = selectContexts @(Refs ds) contexts contexts in f >>= return . (, ?cxt)
 
 -- | Execute a function using contexts propagated from another function having @With@ constraint.
 -- Use this to call a function in another function having implicit contexts of other types.
