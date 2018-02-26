@@ -71,14 +71,14 @@ spec = do
             ca <- newIORef $ CA 1 False
             cb <- newIORef $ CB 2 False
             cc <- newIORef $ CC 3 False
-            let contexts = ca `CCons` cb `CCons` cc `CCons` CNil
+            let contexts = ca `CCons` cb `CCons` cc `CCons` CBase []
             readIORef (contextOf @CB contexts) >>= (`shouldBe` CB 2 False)
 
         it "Close all contexts" $ do
             ca <- newIORef $ CA 1 False
             cb <- newIORef $ CB 2 False
             cc <- newIORef $ CC 3 False
-            let contexts = ca `CCons` cb `CCons` cc `CCons` CNil
+            let contexts = ca `CCons` cb `CCons` cc `CCons` CBase []
             closeAll True contexts
             readIORef (contextOf @CA contexts) >>= (`shouldBe` CA 1 True)
             readIORef (contextOf @CB contexts) >>= (`shouldBe` CB 2 True)
@@ -91,7 +91,7 @@ spec = do
             let resources = ra `RCons` rb `RCons` rc `RCons` RNil
             contexts <- generateContexts @(Refs '[CA, CB, CC]) resources
             case contexts of
-                ca `CCons` cb `CCons` cc `CCons` CNil
+                ca `CCons` cb `CCons` cc `CCons` CBase []
                     -> do
                         readIORef ca >>= (`shouldBe` CA 1 False)
                         readIORef cb >>= (`shouldBe` CB 2 False)
@@ -104,7 +104,7 @@ spec = do
             let resources = ra `RCons` rb `RCons` rc `RCons` RNil
             contexts <- generateContexts @(Refs '[CB, CC]) resources
             case contexts of
-                cb `CCons` cc `CCons` CNil
+                cb `CCons` cc `CCons` CBase []
                     -> do
                         readIORef cb >>= (`shouldBe` CB 2 False)
                         readIORef cc >>= (`shouldBe` CC 3 False)
@@ -126,7 +126,7 @@ spec = do
             (v, contexts) <- withContext @'[CA, CC] resources contextualFunc2
             v `shouldBe` 4
             case contexts of
-                ca `CCons` cc `CCons` CNil
+                ca `CCons` cc `CCons` CBase []
                     -> do
                         readIORef ca >>= (`shouldBe` CA 2 True)
                         readIORef cc >>= (`shouldBe` CC 6 True)
