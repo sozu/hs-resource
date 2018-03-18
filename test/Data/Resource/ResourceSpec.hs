@@ -11,12 +11,12 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TupleSections #-}
 
-module Data.ResourceSpec where
+module Data.Resource.ResourceSpec where
 
 import Test.Hspec
 import Control.Monad.IO.Class
 import Data.IORef
-import Data.Resource
+import Data.Resource.Resource
 import Control.Exception.Safe
 
 data A = A Int deriving (Eq, Show)

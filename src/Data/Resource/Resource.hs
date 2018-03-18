@@ -34,20 +34,35 @@ import Control.Exception.Safe
 import System.Log.FastLogger
 import Control.Monad.Logger
 
+{-| Loggers.
+
+    Logger is a type of resource context which consists of a list of functions outputting log messages.
+    When logging function defined in @Data.Resource.Logger@ is executed, the message will be logged by all of the functions.
+
+    Logger is unique resource in point that logging function itself is always available without registering the resource explicitly.
+    By default, logger has no functions thus any execution of logging function outputs nothing.
+    Once logging resource is registered, it can be used in any generated context even if @Logger@ is not specified.
+    In case multiple logging resources are registered, the latter one has higher priority.
+-}
+
 -- ------------------------------------------------------------
 -- Logger
 -- ------------------------------------------------------------
 
+-- | Resource type for the logger.
 data LoggingResource = LoggingResource Logger
 
-newLoggingResource :: [([String], LogLevel, LogType, Maybe TimeFormat)]
-                   -> IO LoggingResource
+-- | Creates resource for the logger.
+newLoggingResource :: [([String], LogLevel, LogType, Maybe TimeFormat)] -- ^ Logging configuration.
+                   -> IO LoggingResource -- ^ Resource for the logger.
 newLoggingResource ts = LoggingResource <$> mapM newLogger ts
 
+-- | Logger type holding functions to output log messages.
 type Logger = [String -> LogLevel -> (FormattedTime -> LogStr) -> IO ()]
 
-newLogger :: ([String], LogLevel, LogType, Maybe TimeFormat)
-          -> IO (String -> LogLevel -> (FormattedTime -> LogStr) -> IO ())
+-- | Generate a logging function from its configuration.
+newLogger :: ([String], LogLevel, LogType, Maybe TimeFormat) -- ^ Logging configuration.
+          -> IO (String -> LogLevel -> (FormattedTime -> LogStr) -> IO ()) -- ^ Logging function.
 newLogger (tags, level, t, tf) = do
     getTime <- newTimeCache $ maybe "%Y/%m/%d %H:%M:%S" id tf
     (fl, cleanup) <- newTimedFastLogger getTime t
@@ -57,16 +72,19 @@ newLogger (tags, level, t, tf) = do
     where
         matchTag tag t = L.isPrefixOf t tag
 
+-- | Predefined tag list which allows output of any kind of tag.
 anyTag :: [String]
 anyTag = [""]
 
+-- | Predefined tag list which denies output of any kind of tag.
 denyTag :: [String]
 denyTag = []
 
+-- | Declares a method to get the logger having the highest priority from resources.
 class GetContextLogger (rs :: [*]) where
     getContextLogger :: (MonadIO m, MonadBaseControl IO m)
-                     => Resources rs
-                     -> m Logger
+                     => Resources rs -- ^ Resources.
+                     -> m Logger -- ^ The logger of the highest priority.
 
 instance GetContextLogger '[] where
     getContextLogger _ = return []
@@ -79,8 +97,11 @@ instance {-# OVERLAPPING #-} GetContextLogger (IORef LoggingResource ': rs) wher
 instance {-# OVERLAPPABLE #-} (GetContextLogger rs) => GetContextLogger (r ': rs) where
     getContextLogger (r `RCons` rs) = getContextLogger rs
 
+-- | Declares a method to get the logger having the highest priority from resource contexts.
 class GetLogger cs where
-    getLogger :: (MonadIO m) => Contexts cs -> m Logger
+    getLogger :: (MonadIO m)
+              => Contexts cs -- ^ Resource contexts.
+              -> m Logger -- ^ The logger of the highest priority.
 
 instance GetLogger '[] where
     getLogger (CBase logger) = return logger
@@ -260,10 +281,10 @@ class SelectContexts (ds :: [*]) (cs :: [*]) (cs' :: [*]) where
                    -> Contexts cs -- ^ Subset of contexts reduced on each recursion.
                    -> Contexts ds -- ^ Selected contexts.
 
-instance SelectContexts '[] (c ': cs) cs' where
+instance {-# OVERLAPPING #-} SelectContexts '[] (c ': cs) cs' where
     selectContexts contexts _ = baseOf contexts
 
-instance (SelectContexts ds cs' cs') => SelectContexts (IORef c ': ds) (IORef c ': cs) cs' where
+instance {-# OVERLAPPING #-} (SelectContexts ds cs' cs') => SelectContexts (IORef c ': ds) (IORef c ': cs) cs' where
     selectContexts contexts (v `CCons` vs) = v `CCons` selectContexts @ds contexts contexts
 
 instance {-# OVERLAPPABLE #-} (SelectContexts ds cs cs') => SelectContexts ds (c ': cs) cs' where
@@ -289,7 +310,7 @@ class WithContext cs w where
 
 -- | An instance of WithContext which generates contexts from resources.
 -- @withContext@ of this instance will close the genrated contexts correctly.
-instance (ContextResources (Refs cs) rs) => WithContext cs (Resources rs) where
+instance {-# INCOHERENT #-} (ContextResources (Refs cs) rs) => WithContext cs (Resources rs) where
     withContext resources f = do
         bracketOnError (generateContexts @(Refs cs) resources)
                        (closeAll False)
@@ -299,7 +320,7 @@ instance (ContextResources (Refs cs) rs) => WithContext cs (Resources rs) where
                             return (r, c)
                         )
 
-instance (SelectContexts (Refs ds) cs cs) => WithContext ds (Contexts cs) where
+instance {-# INCOHERENT #-} (SelectContexts (Refs ds) cs cs) => WithContext ds (Contexts cs) where
     withContext contexts f = let ?cxt = selectContexts @(Refs ds) contexts contexts in f >>= return . (, ?cxt)
 
 -- | Execute a function using contexts propagated from another function having @With@ constraint.
