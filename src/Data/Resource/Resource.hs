@@ -42,7 +42,7 @@ import Control.Monad.Logger
     Logger is unique resource in point that logging function itself is always available without registering the resource explicitly.
     By default, logger has no functions thus any execution of logging function outputs nothing.
     Once logging resource is registered, it can be used in any generated context even if @Logger@ is not specified.
-    In case multiple logging resources are registered, the latter one has higher priority.
+    In case multiple logging resources are registered, the former one has higher priority.
 -}
 
 -- ------------------------------------------------------------

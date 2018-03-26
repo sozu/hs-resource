@@ -2,6 +2,7 @@ module Data.Resource (
     LoggingResource
     , newLoggingResource
     , Logger
+    , GetContextLogger
     , anyTag
     , denyTag
     , ResourceContext(..)
@@ -11,6 +12,7 @@ module Data.Resource (
     , ContextTypes(..)
     , Contexts(..)
     , ContextResources(..)
+    , ContextOf(..)
     , Refs
     , SelectContexts(..)
     , With
