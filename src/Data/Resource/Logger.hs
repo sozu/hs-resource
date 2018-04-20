@@ -180,34 +180,32 @@ logCE :: (MonadIO m)
       -> m () -- ^ No result.
 logCE c = logCE' c ""
 
-{-| TH logging function logs message followed by source location information obtained by @qLocation@.
-
-    Each function returns an expression of a function accepting contexts and a message string.
-    The usage is as follows.
-    > $(logQD' "tag") contexts "log message..."
-    > $(logQD) contexts "log message..."
--}
-
 -- ----------------------------------------------------------------
 -- TH Logging functions with a tag.
+--
+-- TH logging function logs message followed by source location information obtained by @qLocation@.
+--   Each function returns an expression of a function accepting contexts and a message string.
+--   The usage is as follows.
+--   > $(logQD' "tag") contexts "log message..."
+--   > $(logQD) contexts "log message..."
 -- ----------------------------------------------------------------
 
--- | Retuens an expression of function to log debug level message with given tag.
+-- | Returns an expression of function to log debug level message with given tag.
 logQD' :: String -- ^ Tag.
        -> ExpQ -- ^ Expression.
 logQD' t = logQ t LevelDebug
 
--- | Retuens an expression of function to log info level message with given tag.
+-- | Returns an expression of function to log info level message with given tag.
 logQI' :: String -- ^ Tag.
        -> ExpQ -- ^ Expression.
 logQI' t = logQ t LevelInfo
 
--- | Retuens an expression of function to log warn level message with given tag.
+-- | Returns an expression of function to log warn level message with given tag.
 logQW' :: String -- ^ Tag.
        -> ExpQ -- ^ Expression.
 logQW' t = logQ t LevelWarn
 
--- | Retuens an expression of function to log error level message with given tag.
+-- | Returns an expression of function to log error level message with given tag.
 logQE' :: String -- ^ Tag.
        -> ExpQ -- ^ Expression.
 logQE' t = logQ t LevelError
@@ -216,18 +214,18 @@ logQE' t = logQ t LevelError
 -- TH Logging functions with no tag.
 -- ----------------------------------------------------------------
 
--- | Retuens an expression of function to log debug level message.
+-- | Returns an expression of function to log debug level message.
 logQD :: ExpQ -- ^ Expression.
 logQD = logQ "" LevelDebug
 
--- | Retuens an expression of function to log info level message.
+-- | Returns an expression of function to log info level message.
 logQI :: ExpQ -- ^ Expression.
 logQI = logQ "" LevelInfo
 
--- | Retuens an expression of function to log warn level message.
+-- | Returns an expression of function to log warn level message.
 logQW :: ExpQ -- ^ Expression.
 logQW = logQ "" LevelWarn
 
--- | Retuens an expression of function to log error level message.
+-- | Returns an expression of function to log error level message.
 logQE :: ExpQ -- ^ Expression.
 logQE = logQ "" LevelError
