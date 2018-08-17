@@ -305,8 +305,8 @@ class WithContext cs w where
     -- | Executes a function with contexts.
     withContext :: forall m a. (MonadIO m, MonadMask m, MonadBaseControl IO m)
                 => w -- ^ Object resource contexts can be obtained from.
-                -> (With cs => m a) -- Function using contexts.
-                -> m (a, Contexts (Refs cs)) -- ^ Result of the function and modified contexts.
+                -> (With cs => m a) -- ^ Action using contexts.
+                -> m (a, Contexts (Refs cs)) -- ^ Result of the action and modified contexts.
 
 -- | An instance of WithContext which generates contexts from resources.
 -- @withContext@ of this instance will close the genrated contexts correctly.
@@ -322,6 +322,13 @@ instance {-# INCOHERENT #-} (ContextResources (Refs cs) rs) => WithContext cs (R
 
 instance {-# INCOHERENT #-} (SelectContexts (Refs ds) cs cs) => WithContext ds (Contexts cs) where
     withContext contexts f = let ?cxt = selectContexts @(Refs ds) contexts contexts in f >>= return . (, ?cxt)
+
+-- | This function behaves as @withContext@ but returns just the result of ths action.
+withContext' :: forall cs w m a. (WithContext cs w, MonadIO m, MonadMask m, MonadBaseControl IO m)
+             => w -- ^ Object resource contexts can be obtained from.
+             -> (With cs => m a) -- ^ Action using contexts.
+             -> m a -- ^ Result of the action.
+withContext' w f = fst <$> withContext w f
 
 -- | Execute a function using contexts propagated from another function having @With@ constraint.
 -- Use this to call a function in another function having implicit contexts of other types.

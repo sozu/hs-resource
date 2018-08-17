@@ -17,6 +17,7 @@ module Data.Resource (
     , SelectContexts(..)
     , With
     , WithContext(..)
+    , withContext'
     , with
     , logD, logI, logW, logE
     , logD', logI', logW', logE'
