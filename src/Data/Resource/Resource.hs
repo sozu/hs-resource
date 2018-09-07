@@ -158,6 +158,11 @@ class (ResourceContext (ContextType r), ResourceType (ContextType r) ~ r) => Res
     -- | The type of context.
     type ContextType r :: *
 
+    initialize :: (MonadIO m, MonadBaseControl IO m)
+               => r
+               -> m (IORef r)
+    initialize = liftIO . newIORef
+
     -- | Generate a context. The context is contained in IORef, thus, it can be modified in IO action.
     newContext :: (MonadIO m, MonadBaseControl IO m)
                => IORef r -- ^ Referencee to this resource.
@@ -175,6 +180,41 @@ data Resources (rs :: [*]) where
           -> Resources (IORef r ': rs) -- ^ Prepended list.
 
 infixr 5 `RCons`
+
+type family ConsResources a b :: [*] where
+    ConsResources (IORef r) (IORef q) = '[IORef r, IORef q]
+    ConsResources (IORef r) (Resources rs) = IORef r ': rs
+    ConsResources r (Resources rs) = IORef r ': rs
+    ConsResources r (IORef q) = '[IORef r, IORef q]
+    ConsResources (IORef r) q = '[IORef r, IORef q]
+    ConsResources r q = '[IORef r, IORef q]
+
+class ResourceCons r qs where
+    (.+) :: r -> qs -> IO (Resources (ConsResources r qs))
+
+instance {-# OVERLAPPING #-} (Resource r, Resource q) => ResourceCons (IORef r) (IORef q) where
+    r .+ q = return $ r `RCons` q `RCons` RNil
+instance {-# OVERLAPS #-} (Resource r, Resource q, ConsResources r (IORef q) ~ '[IORef r, IORef q]) => ResourceCons r (IORef q) where
+    r .+ q = do
+        rr <- initialize r :: IO (IORef r)
+        return $ rr `RCons` q `RCons` RNil
+instance {-# OVERLAPS #-} (Resource r, Resource q, ConsResources (IORef r) q ~ '[IORef r, IORef q]) => ResourceCons (IORef r) q where
+    r .+ q = do
+        qr <- initialize q
+        return $ r `RCons` qr `RCons` RNil
+instance {-# OVERLAPPABLE #-} (Resource r, Resource q, ConsResources r q ~ '[IORef r, IORef q]) => ResourceCons r q where
+    r .+ q = do
+        rr <- initialize r
+        qr <- initialize q
+        return $ rr `RCons` qr `RCons` RNil
+instance {-# OVERLAPS #-} (Resource r) => ResourceCons (IORef r) (Resources rs) where
+    r .+ rs = return $ r `RCons` rs
+instance {-# OVERLAPPABLE #-} (Resource r, ConsResources r (Resources rs) ~ (IORef r ': rs)) => ResourceCons r (Resources rs) where
+    r .+ rs = do
+        rr <- initialize r
+        return $ rr `RCons` rs
+
+infixr 5 .+
 
 -- | Declares a method to get a resource reference by its type.
 -- Type should by given by type application or type signature.

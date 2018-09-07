@@ -8,6 +8,7 @@ module Data.Resource (
     , ResourceContext(..)
     , Resource(..)
     , Resources(..)
+    , (.+)
     , ResourceOf(..)
     , ContextTypes(..)
     , Contexts(..)
