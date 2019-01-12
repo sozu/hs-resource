@@ -17,6 +17,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Data.Resource.Resource where
 
@@ -26,6 +27,7 @@ import System.IO
 import Data.IORef
 import Data.Proxy
 import Data.Time
+import Data.Default.Class
 import qualified Data.List as L
 import Control.Monad
 import Control.Monad.IO.Class
@@ -55,15 +57,34 @@ data LoggingResource = LoggingResource Logger
 -- | Creates resource for the logger.
 newLoggingResource :: [([String], LogLevel, LogType, Maybe TimeFormat)] -- ^ Logging configuration.
                    -> IO LoggingResource -- ^ Resource for the logger.
-newLoggingResource ts = LoggingResource <$> mapM newLogger ts
+newLoggingResource ts = LoggingResource <$> mapM makeLogger ts
+
+data LoggerSettings = LoggerSettings { tags :: [String]
+                                     , level :: LogLevel
+                                     , target :: LogType
+                                     , format :: Maybe TimeFormat
+                                     }
+
+instance Default LoggerSettings where
+    def = LoggerSettings anyTag LevelDebug (LogStdout defaultBufSize) Nothing
+
+newLogger :: LoggerSettings
+          -> IO (IORef LoggingResource)
+newLogger (LoggerSettings {..}) = newLoggingResource [(tags, level, target, format)] >>= newIORef
+
+newLoggers :: [LoggerSettings]
+           -> IO (IORef LoggingResource)
+newLoggers ss = newLoggingResource (map tupleSettings ss) >>= newIORef
+    where
+        tupleSettings (LoggerSettings {..}) = (tags, level, target, format)
 
 -- | Logger type holding functions to output log messages.
 type Logger = [String -> LogLevel -> (FormattedTime -> LogStr) -> IO ()]
 
 -- | Generate a logging function from its configuration.
-newLogger :: ([String], LogLevel, LogType, Maybe TimeFormat) -- ^ Logging configuration.
-          -> IO (String -> LogLevel -> (FormattedTime -> LogStr) -> IO ()) -- ^ Logging function.
-newLogger (tags, level, t, tf) = do
+makeLogger :: ([String], LogLevel, LogType, Maybe TimeFormat) -- ^ Logging configuration.
+           -> IO (String -> LogLevel -> (FormattedTime -> LogStr) -> IO ()) -- ^ Logging function.
+makeLogger (tags, level, t, tf) = do
     getTime <- newTimeCache $ maybe "%Y/%m/%d %H:%M:%S" id tf
     (fl, cleanup) <- newTimedFastLogger getTime t
     return $ \tag l s -> if l < level && (tag == "" || any (matchTag tag) tags)
@@ -190,31 +211,31 @@ type family ConsResources a b :: [*] where
     ConsResources r q = '[IORef r, IORef q]
 
 class ResourceCons r qs where
-    (.+) :: r -> qs -> IO (Resources (ConsResources r qs))
+    (>+) :: r -> qs -> IO (Resources (ConsResources r qs))
 
 instance {-# OVERLAPPING #-} (Resource r, Resource q) => ResourceCons (IORef r) (IORef q) where
-    r .+ q = return $ r `RCons` q `RCons` RNil
+    r >+ q = return $ r `RCons` q `RCons` RNil
 instance {-# OVERLAPS #-} (Resource r, Resource q, ConsResources r (IORef q) ~ '[IORef r, IORef q]) => ResourceCons r (IORef q) where
-    r .+ q = do
+    r >+ q = do
         rr <- initialize r :: IO (IORef r)
         return $ rr `RCons` q `RCons` RNil
 instance {-# OVERLAPS #-} (Resource r, Resource q, ConsResources (IORef r) q ~ '[IORef r, IORef q]) => ResourceCons (IORef r) q where
-    r .+ q = do
+    r >+ q = do
         qr <- initialize q
         return $ r `RCons` qr `RCons` RNil
 instance {-# OVERLAPPABLE #-} (Resource r, Resource q, ConsResources r q ~ '[IORef r, IORef q]) => ResourceCons r q where
-    r .+ q = do
+    r >+ q = do
         rr <- initialize r
         qr <- initialize q
         return $ rr `RCons` qr `RCons` RNil
 instance {-# OVERLAPS #-} (Resource r) => ResourceCons (IORef r) (Resources rs) where
-    r .+ rs = return $ r `RCons` rs
+    r >+ rs = return $ r `RCons` rs
 instance {-# OVERLAPPABLE #-} (Resource r, ConsResources r (Resources rs) ~ (IORef r ': rs)) => ResourceCons r (Resources rs) where
-    r .+ rs = do
+    r >+ rs = do
         rr <- initialize r
         return $ rr `RCons` rs
 
-infixr 5 .+
+infixr 5 >+
 
 -- | Declares a method to get a resource reference by its type.
 -- Type should by given by type application or type signature.
