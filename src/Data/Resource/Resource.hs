@@ -162,7 +162,7 @@ class (Resource (ResourceType c), ContextType (ResourceType c) ~ c) => ResourceC
 
     -- | This method is invoked when the IO action finished or some exception is thrown.
     -- Instance type should implement releasing operation of resource handles if @execContext@ does not do it.
-    closeContext :: (MonadIO m, MonadBaseControl IO m)
+    closeContext :: (With '[], MonadIO m, MonadBaseControl IO m)
                  => c -- ^ This context.
                  -> Bool -- ^ Denotes whether the action finished without exception.
                  -> m c -- ^ Closed context.
@@ -173,7 +173,7 @@ class (Resource (ResourceType c), ContextType (ResourceType c) ~ c) => ResourceC
                 -> m a -- ^ An IO action.
                 -> m a -- ^ The result of the action.
 
-    failedContext :: (Exception e)
+    failedContext :: (With '[], Exception e)
                   => c
                   -> e
                   -> c
@@ -302,21 +302,32 @@ closeAll :: (MonadIO m, MonadBaseControl IO m)
          => Bool -- ^ Status denoting whether some error happened in operations under the contexts.
          -> Contexts cs -- ^ List of context references.
          -> m () -- ^ Returns nothing.
-closeAll b (CBase _) = return ()
-closeAll b (v `CCons` vs) = do
-    c <- liftIO $ readIORef v
-    closeContext c b >>= liftIO . writeIORef v
-    closeAll b vs
+closeAll b cxt = do
+    let ?cxt = baseOf cxt
+    withLogger b cxt
+    where
+        withLogger :: (With '[], MonadIO m, MonadBaseControl IO m) => Bool -> Contexts cs -> m ()
+        withLogger b (CBase _) = return ()
+        withLogger b (v `CCons` vs) = do
+            c <- liftIO $ readIORef v
+            closeContext c b >>= liftIO . writeIORef v
+            withLogger b vs
 
 failAll :: (MonadIO m, MonadBaseControl IO m, Exception e)
         => e
         -> Contexts cs
         -> m ()
-failAll e (CBase _) = return ()
-failAll e (cref `CCons` cs) = liftIO $ do
-    c <- readIORef cref
-    writeIORef cref $ failedContext c e
-    failAll e cs
+failAll e cxt = do
+    let ?cxt = baseOf cxt
+    withLogger e cxt
+    where
+        withLogger :: (With '[], MonadIO m, MonadBaseControl IO m, Exception e) => e -> Contexts cs -> m ()
+        withLogger e (CBase _) = return ()
+        withLogger e (v `CCons` vs) = do
+            liftIO $ do
+                c <- readIORef v
+                writeIORef v $ failedContext c e
+            withLogger e vs
 
 -- | Declares a method to get a context reference by its type.
 -- Type should by given by type application or type signature.
