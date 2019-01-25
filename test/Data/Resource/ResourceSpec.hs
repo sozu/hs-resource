@@ -150,28 +150,28 @@ spec = do
         it "Both IORef" $ do
             ra <- newIORef (A 1)
             rc <- newIORef (C 3)
-            resources <- ra .+ rc
+            resources <- ra @+ rc
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 
         it "Raw and IORef" $ do
             let ra = A 1
             rc <- newIORef (C 3)
-            resources <- ra .+ rc
+            resources <- ra @+ rc
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 
         it "IORef and Raw" $ do
             ra <- newIORef (A 1)
             let rc = C 3
-            resources <- ra .+ rc
+            resources <- ra @+ rc
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 
         it "Both Raw" $ do
             let ra = A 1
             let rc = C 3
-            resources <- ra .+ rc
+            resources <- ra @+ rc
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 
@@ -180,7 +180,7 @@ spec = do
             rb <- newIORef (B 2)
             rc <- newIORef (C 3)
             let rs = rb `RCons` rc `RCons` RNil
-            resources <- ra .+ rs
+            resources <- ra @+ rs
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 
@@ -189,7 +189,7 @@ spec = do
             rb <- newIORef (B 2)
             rc <- newIORef (C 3)
             let rs = rb `RCons` rc `RCons` RNil
-            resources <- ra .+ rs
+            resources <- ra @+ rs
             v <- withContext' @'[CA, CC] resources contextualFunc
             v `shouldBe` 4
 

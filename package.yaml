@@ -31,6 +31,7 @@ dependencies:
 - fast-logger
 - monad-logger
 - template-haskell
+- data-default-class
 
 library:
   source-dirs: src
