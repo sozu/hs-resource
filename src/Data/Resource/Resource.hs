@@ -152,6 +152,12 @@ class (Resource (ResourceType c), ContextType (ResourceType c) ~ c) => ResourceC
                 -> m a -- ^ An IO action.
                 -> m a -- ^ The result of the action.
 
+    failedContext :: (Exception e)
+                  => c
+                  -> e
+                  -> c
+    failedContext cxt _ = cxt
+
 -- | Represents a resource to be managed in the application.
 -- Every resource is used through a context generated in each execution of IO action.
 class (ResourceContext (ContextType r), ResourceType (ContextType r) ~ r) => Resource r where
@@ -281,6 +287,16 @@ closeAll b (v `CCons` vs) = do
     closeContext c b >>= liftIO . writeIORef v
     closeAll b vs
 
+failAll :: (MonadIO m, MonadBaseControl IO m, Exception e)
+        => e
+        -> Contexts cs
+        -> m ()
+failAll e (CBase _) = return ()
+failAll e (cref `CCons` cs) = liftIO $ do
+    c <- readIORef cref
+    writeIORef cref $ failedContext c e
+    failAll e cs
+
 -- | Declares a method to get a context reference by its type.
 -- Type should by given by type application or type signature.
 -- > contextOf @ContextType contexts
@@ -361,7 +377,9 @@ instance {-# INCOHERENT #-} (ContextResources (Refs cs) rs) => WithContext cs (R
                         )
 
 instance {-# INCOHERENT #-} (SelectContexts (Refs ds) cs cs) => WithContext ds (Contexts cs) where
-    withContext contexts f = let ?cxt = selectContexts @(Refs ds) contexts contexts in f >>= return . (, ?cxt)
+    withContext contexts f = do
+        let ?cxt = selectContexts @(Refs ds) contexts contexts
+        withException (f >>= return . (, ?cxt)) (\(e :: SomeException) -> failAll e ?cxt)
 
 -- | This function behaves as @withContext@ but returns just the result of ths action.
 withContext' :: forall cs w m a. (WithContext cs w, MonadIO m, MonadMask m, MonadBaseControl IO m)
@@ -386,4 +404,6 @@ withContext' w f = fst <$> withContext w f
 with :: forall ds cs m a. (With cs, SelectContexts (Refs ds) (Refs cs) (Refs cs), MonadIO m, MonadMask m, MonadBaseControl IO m)
      => (With ds => m a) -- ^ A function using contexts of @ds@.
      -> m a -- ^ Result of the function.
-with f = let ?cxt = selectContexts @(Refs ds) ?cxt ?cxt in f
+with f = do
+    let ?cxt = selectContexts @(Refs ds) ?cxt ?cxt
+    f `withException` \(e :: SomeException) -> failAll e ?cxt
