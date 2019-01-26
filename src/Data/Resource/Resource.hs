@@ -173,11 +173,11 @@ class (Resource (ResourceType c), ContextType (ResourceType c) ~ c) => ResourceC
                 -> m a -- ^ An IO action.
                 -> m a -- ^ The result of the action.
 
-    failedContext :: (With '[], Exception e)
+    failedContext :: (With '[], MonadIO m, MonadBaseControl IO m, Exception e)
                   => c
                   -> e
-                  -> c
-    failedContext cxt _ = cxt
+                  -> m c
+    failedContext cxt _ = return cxt
 
 -- | Represents a resource to be managed in the application.
 -- Every resource is used through a context generated in each execution of IO action.
@@ -326,7 +326,8 @@ failAll e cxt = do
         withLogger e (v `CCons` vs) = do
             liftIO $ do
                 c <- readIORef v
-                writeIORef v $ failedContext c e
+                c' <- failedContext c e
+                writeIORef v c'
             withLogger e vs
 
 -- | Declares a method to get a context reference by its type.
