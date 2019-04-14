@@ -14,6 +14,7 @@ module Data.Resource (
     , ResourceOf(..)
     , ContextTypes(..)
     , Contexts(..)
+    , closeAll, failAll
     , ContextResources(..)
     , ContextOf(..)
     , Refs
