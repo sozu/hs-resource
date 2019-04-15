@@ -87,9 +87,9 @@ makeLogger :: ([String], LogLevel, LogType, Maybe TimeFormat) -- ^ Logging confi
 makeLogger (tags, level, t, tf) = do
     getTime <- newTimeCache $ maybe "%Y/%m/%d %H:%M:%S" id tf
     (fl, cleanup) <- newTimedFastLogger getTime t
-    return $ \tag l s -> if l < level && (tag == "" || any (matchTag tag) tags)
-                            then return ()
-                            else fl s `catchAny` \e -> hPutStrLn stderr (show e)
+    return $ \tag l s -> if l >= level && (tag == "" || any (matchTag tag) tags)
+                            then fl s `catchAny` \e -> hPutStrLn stderr (show e)
+                            else return ()
     where
         matchTag tag t = L.isPrefixOf t tag
 

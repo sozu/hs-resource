@@ -29,10 +29,11 @@ logIORef :: IORef [B.ByteString] -> (LogStr -> IO())
 logIORef ref = \s -> modifyIORef ref (fromLogStr s:)
 
 getContexts :: LogLevel
+            -> [String]
             -> IORef [B.ByteString]
             -> IO (Contexts '[], IORef [B.ByteString])
-getContexts level ref = do
-    r <- newLoggingResource [(anyTag, level, LogCallback (logIORef ref) (return ()), Just "")] >>= newIORef
+getContexts level tags ref = do
+    r <- newLoggingResource [(tags, level, LogCallback (logIORef ref) (return ()), Just "")] >>= newIORef
     (, ref) <$> generateContexts (r `RCons` RNil)
 
 removeNL :: Char
@@ -45,7 +46,7 @@ spec :: Spec
 spec = do
     describe "Loggers" $ do
         it "Output debug log" $ do
-            (cxt, buf) <- newIORef [] >>= getContexts LevelDebug
+            (cxt, buf) <- newIORef [] >>= getContexts LevelDebug anyTag
             log' cxt "" LevelDebug "1"
             log' cxt "" LevelInfo "2"
             log' cxt "" LevelWarn "3"
@@ -53,8 +54,8 @@ spec = do
             res <- readIORef buf
             map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelDebug] 1", " [LevelInfo] 2", " [LevelWarn] 3", " [LevelError] 4"]
 
-        it "Output debug log" $ do
-            (cxt, buf) <- newIORef [] >>= getContexts LevelInfo
+        it "Output info log" $ do
+            (cxt, buf) <- newIORef [] >>= getContexts LevelInfo anyTag
             log' cxt "" LevelDebug "1"
             log' cxt "" LevelInfo "2"
             log' cxt "" LevelWarn "3"
@@ -62,8 +63,8 @@ spec = do
             res <- readIORef buf
             map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelInfo] 2", " [LevelWarn] 3", " [LevelError] 4"]
 
-        it "Output debug log" $ do
-            (cxt, buf) <- newIORef [] >>= getContexts LevelWarn
+        it "Output warn log" $ do
+            (cxt, buf) <- newIORef [] >>= getContexts LevelWarn anyTag
             log' cxt "" LevelDebug "1"
             log' cxt "" LevelInfo "2"
             log' cxt "" LevelWarn "3"
@@ -71,11 +72,29 @@ spec = do
             res <- readIORef buf
             map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelWarn] 3", " [LevelError] 4"]
 
-        it "Output debug log" $ do
-            (cxt, buf) <- newIORef [] >>= getContexts LevelError
+        it "Output error log" $ do
+            (cxt, buf) <- newIORef [] >>= getContexts LevelError anyTag
             log' cxt "" LevelDebug "1"
             log' cxt "" LevelInfo "2"
             log' cxt "" LevelWarn "3"
             log' cxt "" LevelError "4"
             res <- readIORef buf
             map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelError] 4"]
+
+        it "Output debug log with tag" $ do
+            (cxt, buf) <- newIORef [] >>= getContexts LevelDebug ["a"]
+            log' cxt "" LevelDebug "1"
+            log' cxt "a" LevelDebug "2"
+            log' cxt "ab" LevelDebug "3"
+            log' cxt "b" LevelDebug "4"
+            res <- readIORef buf
+            map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelDebug] 1", " [LevelDebug] 2", " [LevelDebug] 3"]
+
+        it "Output error log with tag" $ do
+            (cxt, buf) <- newIORef [] >>= getContexts LevelError ["a"]
+            log' cxt "" LevelWarn "1"
+            log' cxt "a" LevelWarn "2"
+            log' cxt "a" LevelError "3"
+            log' cxt "b" LevelError "4"
+            res <- readIORef buf
+            map (C8.concatMap removeNL) res `shouldBe` reverse [" [LevelError] 3"]
